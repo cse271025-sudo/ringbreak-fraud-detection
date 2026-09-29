@@ -40,6 +40,7 @@ class AMLSimService:
         self._accounts_by_id: dict[str, dict[str, Any]] = {}
         self._alerts: list[dict[str, Any]] = []
         self._alerts_by_id: dict[int, list[dict[str, Any]]] = defaultdict(list)
+        self._transactions_by_account: dict[str, list[dict[str, Any]]] = defaultdict(list)
         self._patterns: dict[str, dict[str, Any]] = {}
         self._loaded = False
 
@@ -121,6 +122,8 @@ class AMLSimService:
                     }
                     self._transactions.append(tx_record)
                     self._transactions_by_id[tx_id] = tx_record
+                    self._transactions_by_account[tx_record["senderAccount"]].append(tx_record)
+                    self._transactions_by_account[tx_record["receiverAccount"]].append(tx_record)
 
         # 4. Load pattern definitions
         if pattern_param_path.is_file():
@@ -841,17 +844,18 @@ class AMLSimService:
                 candidate_txs.append(full_tx)
             source = f"alert_group_{alert_id}"
         else:
-            # Fall back to shared-account lookup (same sender or receiver)
-            for other_tx in self._transactions:
-                if other_tx["sourceTransactionId"] == tx_id:
-                    continue
-                if (
-                    other_tx["senderAccount"] in (sender, receiver)
-                    or other_tx["receiverAccount"] in (sender, receiver)
-                ):
-                    candidate_txs.append(other_tx)
-                    if len(candidate_txs) >= 30:
-                        break
+            # Fall back to shared-account lookup using indexed accounts
+            seen_tids = {tx_id}
+            for acc in (sender, receiver):
+                for other_tx in self._transactions_by_account.get(acc, []):
+                    tid = other_tx["sourceTransactionId"]
+                    if tid not in seen_tids:
+                        seen_tids.add(tid)
+                        candidate_txs.append(other_tx)
+                        if len(candidate_txs) >= 30:
+                            break
+                if len(candidate_txs) >= 30:
+                    break
             source = "shared_account_lookup"
 
         # Always include the target transaction itself
@@ -891,7 +895,10 @@ class AMLSimService:
 
         try:
             from app.services.gnn_service import gnn_service
-            gnn_eval = gnn_service.evaluate_clique_for_transaction(tx, self._transactions)
+            if gnn_service._is_trained:
+                gnn_eval = gnn_service.evaluate_clique_for_transaction(tx, candidate_txs)
+            else:
+                gnn_eval = {}
         except Exception:
             gnn_eval = {}
 
