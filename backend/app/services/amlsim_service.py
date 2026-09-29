@@ -14,10 +14,14 @@ def _find_amlsim_data_dir() -> Path:
     if env_dir and Path(env_dir).is_dir():
         return Path(env_dir).resolve()
 
+    base = Path(__file__).resolve()
     candidates = [
-        Path(__file__).resolve().parents[3] / "AMLSim-data",
-        Path(__file__).resolve().parents[2] / "AMLSim-data",
+        base.parent / "AMLSim-data",
+        base.parents[1] / "AMLSim-data",
+        base.parents[2] / "AMLSim-data",
+        base.parents[3] / "AMLSim-data",
         Path.cwd() / "AMLSim-data",
+        Path.cwd() / "backend" / "AMLSim-data",
         Path.cwd().parent / "AMLSim-data",
     ]
     for candidate in candidates:
